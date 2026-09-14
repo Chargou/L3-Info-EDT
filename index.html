@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planning — Calendrier hebdomadaire</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--line:#dfe4ea;--text:#17202a;--muted:#64707d;--accent:#2563eb}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:#fff;border-bottom:1px solid var(--line);padding:16px 20px;position:sticky;top:0;z-index:5}
+h1{margin:0 0 10px;font-size:20px}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit}.btn,select{border:1px solid #cbd3dc;background:#fff;border-radius:8px;padding:7px 10px}.btn{cursor:pointer}.btn:hover{background:#f7f9fb}
+.status{color:var(--muted);font-size:13px;margin-left:auto}
+main{padding:18px;max-width:1500px;margin:auto}.week-nav{display:flex;gap:8px;align-items:center;margin-bottom:12px}.week-title{font-size:18px;font-weight:700;flex:1}
+.calendar{display:grid;grid-template-columns:64px repeat(5,minmax(150px,1fr));background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px #00000008}
+.corner,.day-head{background:#f8fafc;border-bottom:1px solid var(--line);padding:10px}.day-head{font-weight:700;border-left:1px solid var(--line)}.day-head small{display:block;color:var(--muted);font-weight:500;margin-top:2px}
+.time-col{position:relative;min-height:780px}.time{height:60px;padding:4px 6px;color:var(--muted);font-size:11px;border-bottom:1px solid #edf0f3}
+.day-col{position:relative;min-height:780px;border-left:1px solid var(--line);background:repeating-linear-gradient(to bottom,#fff 0,#fff 59px,#edf0f3 60px)}
+.event{position:absolute;left:5px;right:5px;border-radius:8px;padding:7px 8px;overflow:hidden;border:1px solid #c7d2fe;background:#eef2ff;box-shadow:0 1px 3px #0001}
+.event strong{display:block;font-size:12px}.event .meta{font-size:11px;color:#334155;margin-top:3px}.event .group{font-weight:700}
+.special{grid-column:1/-1;padding:22px;background:#fff7ed;border-top:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}
+.special b{font-size:17px}.special p{margin:6px 0 0;color:#7c2d12}.special .kind{display:inline-block;margin-bottom:6px;padding:3px 8px;border-radius:999px;background:#fed7aa;color:#9a3412;font-weight:700;font-size:11px}
+.day-special{position:absolute;left:5px;right:5px;border-radius:8px;padding:10px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;box-shadow:0 1px 3px #0001}
+.empty{grid-column:1/-1;padding:30px;text-align:center;color:var(--muted)}
+.legend{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;color:var(--muted);font-size:12px}.pill{padding:3px 8px;border-radius:999px;background:#fff;border:1px solid var(--line)}
+@media(max-width:800px){.calendar{grid-template-columns:45px repeat(5,minmax(120px,1fr));overflow-x:auto}.status{width:100%;margin-left:0}}
+</style>
+</head>
+<body>
+<header>
+<h1>Calendrier hebdomadaire du planning</h1>
+<div class="toolbar">
+<label class="btn">📄 Charger un autre Excel <input id="file" type="file" accept=".xlsx,.xls,.csv" hidden></label>
+<select id="group"><option value="Tous">Tous les groupes</option></select>
+<button class="btn" id="prev">← Semaine précédente</button>
+<button class="btn" id="today">Aujourd’hui</button>
+<button class="btn" id="next">Semaine suivante →</button>
+<span class="status" id="status">Chargement du planning…</span>
+</div>
+</header>
+<main>
+<div class="week-nav"><div class="week-title" id="weekTitle">Chargement…</div></div>
+<div id="calendar"></div>
+</main>
+<script>
+const DAYS=["Lundi","Mardi","Mercredi","Jeudi","Vendredi"];
+const DAY_INDEX=Object.fromEntries(DAYS.map((d,i)=>[d,i]));
+let events=[], specialWeeks=new Map(), weeks=[], currentIndex=0;
+
+const $=id=>document.getElementById(id);
+function pad(n){return String(n).padStart(2,"0")}
+function dateKey(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
+function fromKey(k){return new Date(k+"T00:00:00")}
+function monday(d){
+  let x=new Date(d); x.setHours(0,0,0,0);
+  const n=x.getDay(); x.setDate(x.getDate()+(n===0?-6:1-n)); return x;
+}
+function parseDate(v){
+  if(v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
+  if(typeof v==="number"){
+    const x=XLSX.SSF.parse_date_code(v);
+    if(x) return new Date(x.y,x.m-1,x.d);
+  }
+  if(typeof v==="string"){
+    const s=v.trim();
+    let m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+    if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[2]-1,+m[1])}
+    const d=new Date(s); if(!isNaN(d)) return new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  }
+  return null;
+}
+function timeParts(v){
+  if(v==null)return null;
+  const m=String(v).trim().match(/^(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})$/);
+  return m?[+m[1]*60 + +m[2],+m[3]*60 + +m[4]]:null;
+}
+function fmtDate(d){return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"})}
+function fmtShort(d){return d.toLocaleDateString("fr-FR",{weekday:"short",day:"2-digit",month:"2-digit"}).replace(".","")}
+function normalizeGroup(g){return String(g??"Tous").trim()||"Tous"}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+async function readWorkbook(arrayBuffer){
+  const wb=XLSX.read(arrayBuffer,{type:"array",cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{defval:null,raw:true});
+  loadRows(rows);
+}
+async function loadDefault(){
+  try{
+    const res=await fetch("./planning.xlsx",{cache:"no-store"});
+    if(!res.ok)throw new Error("planning.xlsx introuvable ("+res.status+")");
+    await readWorkbook(await res.arrayBuffer());
+    $("status").textContent=`Planning par défaut — ${events.length} événements`;
+    applyHashGroup();
+    goToday();
+  }catch(e){
+    $("status").textContent="Impossible de charger planning.xlsx";
+    $("calendar").innerHTML=`<div class="empty">Le planning par défaut n'a pas pu être chargé.<br>
+    Si vous ouvrez le fichier HTML directement (file://), utilisez « Charger un autre Excel ».
+    Sur GitHub Pages, vérifiez que <b>planning.xlsx</b> est bien dans le même dossier.</div>`;
+  }
+}
+function loadRows(rows){
+  events=[]; specialWeeks=new Map();
+  for(const r of rows){
+    const weekDate=parseDate(r["Date du Lundi de début de semaine"]);
+    if(!weekDate)continue;
+    const weekKey=dateKey(monday(weekDate));
+    const day=String(r["Jour"]??"").trim();
+    const type=String(r["Type"]??"").trim();
+    const activity=r["Activité"], group=normalizeGroup(r["Groupe"]), room=r["Salle"], source=r["Texte source"];
+    // Une ligne SEMAINE représente toute la semaine (PARTIELS, Vacances, etc.).
+    if(day.toUpperCase()==="SEMAINE"){
+      specialWeeks.set(weekKey,{type,activity,group,room,text:source,wholeWeek:true});
+      continue;
+    }
+    // Les jours fériés peuvent être une seule journée : on les conserve comme événements normaux,
+    // même s'ils n'ont pas de créneau.
+    const idx=DAY_INDEX[day];
+    if(idx===undefined)continue;
+    const t=timeParts(r["Créneau"]);
+    if(t){
+      events.push({week:weekKey,day,start:t[0],end:t[1],type,activity,group,room,source});
+    }else if(type.toLowerCase()==="férié"){
+      events.push({week:weekKey,day,start:7*60,end:20*60,type,activity,group,room,source,allDay:true});
+    }
+  }
+  weeks=[...new Set([...events.map(e=>e.week),...specialWeeks.keys()])].sort();
+  const groups=[...new Set(events.map(e=>e.group).concat([...specialWeeks.values()].map(e=>e.group)).filter(g=>g!=="Tous"))]
+    .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  $("group").innerHTML='<option value="Tous">Tous les groupes</option>'+groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  applyHashGroup();
+  currentIndex=0; render();
+}
+$("file").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{await readWorkbook(await f.arrayBuffer());$("status").textContent=`${f.name} — ${events.length} événements`;goToday()}
+  catch(err){alert("Impossible de lire ce fichier Excel : "+err.message)}
+});
+$("group").addEventListener("change",()=>{
+  const v=$("group").value;
+  history.replaceState(null,"", v==="Tous" ? location.pathname+location.search : location.pathname+location.search+"#"+encodeURIComponent(v));
+  render();
+});
+window.addEventListener("hashchange",()=>{
+  applyHashGroup();
+  render();
+});
+function applyHashGroup(){
+  const raw=decodeURIComponent(location.hash.replace(/^#/,"")).trim();
+  if(!raw || raw.toLowerCase()==="tous"){ $("group").value="Tous"; return; }
+  const opts=[...$("group").options];
+  const found=opts.find(o=>o.value.toLowerCase()===raw.toLowerCase());
+  $("group").value=found ? found.value : "Tous";
+}
+$("prev").onclick=()=>{if(currentIndex>0){currentIndex--;render()}}
+$("next").onclick=()=>{if(currentIndex<weeks.length-1){currentIndex++;render()}}
+$("today").onclick=goToday;
+
+function goToday(){
+  if(!weeks.length)return;
+  const todayKey=dateKey(monday(new Date()));
+  // Exacte si elle existe ; sinon semaine du planning la plus proche chronologiquement.
+  let i=weeks.indexOf(todayKey);
+  if(i<0){
+    const target=fromKey(todayKey).getTime();
+    i=weeks.reduce((best,k,idx)=>{
+      const dist=Math.abs(fromKey(k).getTime()-target);
+      return dist<best.dist?{idx,dist}:{idx:best.idx,dist:best.dist};
+    },{idx:0,dist:Infinity}).idx;
+  }
+  currentIndex=i;render();
+}
+function render(){
+  const cal=$("calendar");
+  if(!weeks.length){$("weekTitle").textContent="Aucune donnée";cal.innerHTML='<div class="empty">Aucune donnée exploitable.</div>';return}
+  const wk=fromKey(weeks[currentIndex]), key=weeks[currentIndex], sp=specialWeeks.get(key);
+  $("weekTitle").textContent=`Semaine du ${fmtDate(wk)}${sp?` — ${sp.type||"Semaine spéciale"}`:""}`;
+  if(sp){
+    cal.innerHTML=`<div class="special"><div class="kind">${esc(sp.type||"Semaine spéciale")}</div>
+      <b>${esc(sp.type||"Semaine spéciale")}</b>${sp.room?`<p>${esc(sp.room)}</p>`:""}${sp.activity?`<p>${esc(sp.activity)}</p>`:""}</div>`;
+    return;
+  }
+  const group=$("group").value, visible=events.filter(e=>e.week===key&&(group==="Tous"||e.group==="Tous"||e.group===group));
+  const start=7*60,end=20*60,h=60;
+  let html='<div class="calendar"><div class="corner"></div>';
+  for(let i=0;i<5;i++){let d=new Date(wk);d.setDate(d.getDate()+i);html+=`<div class="day-head">${DAYS[i]}<small>${fmtShort(d)}</small></div>`}
+  html+='<div class="time-col">';
+  for(let m=start;m<end;m+=60)html+=`<div class="time">${pad(Math.floor(m/60))}:00</div>`;
+  html+='</div>';
+  for(const day of DAYS){
+    html+='<div class="day-col">';
+    const dayEvents=visible.filter(e=>e.day===day && !e.allDay);
+    const allDay=visible.filter(e=>e.day===day && e.allDay);
+    allDay.forEach(e=>{
+      html+=`<div class="day-special" style="top:5px;height:${13*h-10}px">
+        <strong>FÉRIÉ</strong>${e.activity?`<div class="meta">${esc(e.activity)}</div>`:""}${e.source?`<div class="meta">${esc(e.source)}</div>`:""}
+      </div>`;
+    });
+
+    // Partition into overlap clusters, then assign each event a free column.
+    const sorted=[...dayEvents].sort((a,b)=>a.start-b.start || a.end-b.end);
+    const clusters=[];
+    let cluster=null, clusterEnd=-Infinity;
+    for(const ev of sorted){
+      if(!cluster || ev.start >= clusterEnd){
+        cluster=[];
+        clusters.push(cluster);
+        clusterEnd=ev.end;
+      } else {
+        clusterEnd=Math.max(clusterEnd,ev.end);
+      }
+      cluster.push(ev);
+    }
+    for(const cluster of clusters){
+      const cols=[];
+      for(const ev of cluster){
+        let col=0;
+        while(cols[col] && cols[col].some(x=>x.start < ev.end && ev.start < x.end)) col++;
+        (cols[col] ||= []).push(ev);
+        ev._col=col;
+      }
+      const total=cols.length;
+      cluster.forEach(e=>{
+        const top=(e.start-start)*h/60, height=Math.max(38,(e.end-e.start)*h/60-6);
+        const width=100/total, left=e._col*width;
+        html+=`<div class="event" style="top:${top}px;height:${height}px;left:calc(${left}% + 5px);width:calc(${width}% - 10px)" title="${esc([e.type,e.activity,e.group,e.room].filter(Boolean).join(" — "))}">
+          <strong>${esc(e.type)}${e.activity?` · ${esc(e.activity)}`:""}</strong>
+          <div class="meta">${pad(Math.floor(e.start/60))}:${pad(e.start%60)}–${pad(Math.floor(e.end/60))}:${pad(e.end%60)}</div>
+          <div class="meta">${e.group!=="Tous"?`<span class="group">${esc(e.group)}</span> · `:""}${esc(e.room||"")}</div>
+        </div>`;
+      });
+    }
+    html+='</div>';
+  }
+  html+='</div>';cal.innerHTML=html;
+}
+loadDefault();
+</script>
+</body>
+</html>
