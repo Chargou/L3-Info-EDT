@@ -109,10 +109,13 @@ function loadRows(rows){
     const weekKey=dateKey(monday(weekDate));
     const day=String(r["Jour"]??"").trim();
     const type=String(r["Type"]??"").trim();
-    const activity=r["Activité"], group=normalizeGroup(r["Groupe"]), room=r["Salle"], source=r["Texte source"];
+    const subjectAcronym=String(r["Acronyme"]??"").trim();
+    const subjectName=String(r["Matière"]??"").trim();
+    const activity=subjectAcronym;
+    const group=normalizeGroup(r["Groupe"]), room=r["Salle"], source=r["Texte source"];
     // Une ligne SEMAINE représente toute la semaine (PARTIELS, Vacances, etc.).
     if(day.toUpperCase()==="SEMAINE"){
-      specialWeeks.set(weekKey,{type,activity,group,room,text:source,wholeWeek:true});
+      specialWeeks.set(weekKey,{type,activity,group,room,text:source,wholeWeek:true,subjectAcronym,subjectName});
       continue;
     }
     // Les jours fériés peuvent être une seule journée : on les conserve comme événements normaux,
@@ -121,9 +124,9 @@ function loadRows(rows){
     if(idx===undefined)continue;
     const t=timeParts(r["Créneau"]);
     if(t){
-      events.push({week:weekKey,day,start:t[0],end:t[1],type,activity,group,room,source});
+      events.push({week:weekKey,day,start:t[0],end:t[1],type,activity,group,room,source,subjectAcronym,subjectName});
     }else if(type.toLowerCase()==="férié"){
-      events.push({week:weekKey,day,start:7*60,end:20*60,type,activity,group,room,source,allDay:true});
+      events.push({week:weekKey,day,start:7*60,end:20*60,type,activity,group,room,source,allDay:true,subjectAcronym,subjectName});
     }
   }
   weeks=[...new Set([...events.map(e=>e.week),...specialWeeks.keys()])].sort();
