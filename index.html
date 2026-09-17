@@ -17,13 +17,30 @@ main{padding:18px;max-width:1500px;margin:auto}.week-nav{display:flex;gap:8px;al
 .corner,.day-head{background:#f8fafc;border-bottom:1px solid var(--line);padding:10px}.day-head{font-weight:700;border-left:1px solid var(--line)}.day-head small{display:block;color:var(--muted);font-weight:500;margin-top:2px}
 .time-col{position:relative;min-height:780px}.time{height:60px;padding:4px 6px;color:var(--muted);font-size:11px;border-bottom:1px solid #edf0f3}
 .day-col{position:relative;min-height:780px;border-left:1px solid var(--line);background:repeating-linear-gradient(to bottom,#fff 0,#fff 59px,#edf0f3 60px)}
-.event{position:absolute;left:5px;right:5px;border-radius:8px;padding:7px 8px;overflow:hidden;border:1px solid #c7d2fe;background:#eef2ff;box-shadow:0 1px 3px #0001}
+.day-col.today::before{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:#2563eb;opacity:.06;pointer-events:none}
+.day-head.today{background:#e8f0fe;box-shadow:inset 0 -2px 0 var(--accent)}
+.now-line{position:absolute;left:0;right:0;height:2px;background:#dc2626;opacity:.75;pointer-events:none;z-index:3}
+.now-line::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:#dc2626}
+.event{position:absolute;left:5px;right:5px;border-radius:8px;padding:7px 8px;overflow:hidden;border:1px solid #c7d2fe;background:#eef2ff;box-shadow:0 1px 3px #0001;cursor:pointer}
+.event:hover{border-color:var(--accent)}
 .event strong{display:block;font-size:12px}.event .meta{font-size:11px;color:#334155;margin-top:3px}.event .group{font-weight:700}
 .special{grid-column:1/-1;padding:22px;background:#fff7ed;border-top:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}
 .special b{font-size:17px}.special p{margin:6px 0 0;color:#7c2d12}.special .kind{display:inline-block;margin-bottom:6px;padding:3px 8px;border-radius:999px;background:#fed7aa;color:#9a3412;font-weight:700;font-size:11px}
-.day-special{position:absolute;left:5px;right:5px;border-radius:8px;padding:10px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;box-shadow:0 1px 3px #0001}
+.day-special{position:absolute;left:5px;right:5px;border-radius:8px;padding:10px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;box-shadow:0 1px 3px #0001;cursor:pointer}
 .empty{grid-column:1/-1;padding:30px;text-align:center;color:var(--muted)}
 .legend{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;color:var(--muted);font-size:12px}.pill{padding:3px 8px;border-radius:999px;background:#fff;border:1px solid var(--line)}
+.overlay{position:fixed;inset:0;background:#0f172a73;display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal{position:relative;background:#fff;border-radius:12px;max-width:360px;width:100%;box-shadow:0 12px 40px #00000040;padding:18px 20px}
+.modal-close{position:absolute;top:10px;right:10px;border:0;background:transparent;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:2px 8px;border-radius:6px}
+.modal-close:hover{background:#f1f5f9}
+.modal-body{display:flex;flex-direction:column;gap:4px}
+.pop-type{font-weight:700;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
+.pop-course{font-size:17px;font-weight:700;margin-bottom:2px}
+.pop-line{color:var(--text)}
+.pop-links{display:flex;flex-direction:column;gap:6px;margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+.pop-link{align-self:flex-start;color:var(--accent);text-decoration:none;font-weight:600}
+.pop-link:hover{text-decoration:underline}
+.pop-none{color:var(--muted);font-size:13px}
 @media(max-width:800px){.calendar{grid-template-columns:45px repeat(5,minmax(120px,1fr));overflow-x:auto}.status{width:100%;margin-left:0}}
 </style>
 </head>
@@ -31,7 +48,7 @@ main{padding:18px;max-width:1500px;margin:auto}.week-nav{display:flex;gap:8px;al
 <header>
 <h1>Calendrier hebdomadaire du planning</h1>
 <div class="toolbar">
-<label class="btn">📄 Charger un autre Excel <input id="file" type="file" accept=".xlsx,.xls,.csv" hidden></label>
+<label class="btn">📄 Charger un autre Excel <input id="file" type="file" accept=".xlsx,.xls" hidden></label>
 <select id="group"><option value="Tous">Tous les groupes</option></select>
 <button class="btn" id="prev">← Semaine précédente</button>
 <button class="btn" id="today">Aujourd’hui</button>
@@ -79,12 +96,63 @@ function fmtDate(d){return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-
 function fmtShort(d){return d.toLocaleDateString("fr-FR",{weekday:"short",day:"2-digit",month:"2-digit"}).replace(".","")}
 function normalizeGroup(g){return String(g??"Tous").trim()||"Tous"}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function fmtTime(m){return `${pad(Math.floor(m/60))}:${pad(m%60)}`}
+function openEventPopup(e){
+  const course=e.course;
+  const name=course?(course.fullName||e.activity):e.activity;
+  let html=`<button class="modal-close" type="button" aria-label="Fermer">×</button><div class="modal-body">`;
+  html+=`<div class="pop-type">${esc(e.type||"Événement")}</div>`;
+  if(name)html+=`<div class="pop-course">${esc(name)}</div>`;
+  html+=`<div class="pop-line">${fmtTime(e.start)}–${fmtTime(e.end)}</div>`;
+  if(e.group)html+=`<div class="pop-line">${esc(e.group==="Tous"?"Tous les groupes":e.group)}</div>`;
+  if(e.room)html+=`<div class="pop-line">${esc(e.room)}</div>`;
+  if(course){
+    const link=(href,label,missing)=>href
+      ? `<a class="pop-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`
+      : `<span class="pop-none">${esc(missing)}</span>`;
+    html+='<div class="pop-links">';
+    html+=link(course.links.ecampus,"Ecampus","Pas de lien Ecampus pour ce cours");
+    html+=link(course.links.website,"Site web","Pas de site web pour ce cours");
+    html+=link(course.links.drive,"Drive","Pas de dossier Drive pour ce cours");
+    html+='</div>';
+  }
+  html+='</div>';
+  document.body.insertAdjacentHTML("beforeend",`<div class="overlay" id="popupOverlay"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`);
+  const overlay=$("popupOverlay");
+  const close=()=>overlay.remove();
+  overlay.addEventListener("click",ev=>{if(ev.target===overlay)close()});
+  overlay.querySelector(".modal-close").addEventListener("click",close);
+}
 
+function normalizeName(s){
+  return String(s??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\./g," ").replace(/\s+/g," ").trim().toLowerCase();
+}
+function buildCourses(rows){
+  const map=new Map();
+  for(const r of rows){
+    const small=String(r["Small name"]??"").trim();
+    if(!small)continue;
+    map.set(normalizeName(small),{
+      small,
+      fullName:String(r["Full name"]??"").trim(),
+      aliases:String(r["Aliases"]??"").split(/[;,]/).map(s=>s.trim()).filter(Boolean),
+      links:{
+        ecampus:String(r["Ecampus link"]??"").trim(),
+        website:String(r["Website link"]??"").trim(),
+        drive:String(r["Drive link"]??"").trim()
+      }
+    });
+  }
+  return map;
+}
 async function readWorkbook(arrayBuffer){
   const wb=XLSX.read(arrayBuffer,{type:"array",cellDates:true});
-  const ws=wb.Sheets[wb.SheetNames[0]];
-  const rows=XLSX.utils.sheet_to_json(ws,{defval:null,raw:true});
-  loadRows(rows);
+  const wsEvents=wb.Sheets["Evenements"], wsCourses=wb.Sheets["Courses"];
+  if(!wsEvents)throw new Error("Feuille « Evenements » introuvable dans le classeur.");
+  if(!wsCourses)throw new Error("Feuille « Courses » introuvable dans le classeur.");
+  const courses=buildCourses(XLSX.utils.sheet_to_json(wsCourses,{defval:null,raw:true}));
+  const rows=XLSX.utils.sheet_to_json(wsEvents,{defval:null,raw:true});
+  loadRows(rows,courses);
 }
 async function loadDefault(){
   try{
@@ -96,12 +164,12 @@ async function loadDefault(){
     goToday();
   }catch(e){
     $("status").textContent="Impossible de charger planning.xlsx";
-    $("calendar").innerHTML=`<div class="empty">Le planning par défaut n'a pas pu être chargé.<br>
+    $("calendar").innerHTML=`<div class="empty">Le planning par défaut n'a pas pu être chargé${e&&e.message?` : ${esc(e.message)}`:""}.<br>
     Si vous ouvrez le fichier HTML directement (file://), utilisez « Charger un autre Excel ».
     Sur GitHub Pages, vérifiez que <b>planning.xlsx</b> est bien dans le même dossier.</div>`;
   }
 }
-function loadRows(rows){
+function loadRows(rows,courses){
   events=[]; specialWeeks=new Map();
   for(const r of rows){
     const weekDate=parseDate(r["Date du Lundi de début de semaine"]);
@@ -110,25 +178,28 @@ function loadRows(rows){
     const day=String(r["Jour"]??"").trim();
     const type=String(r["Type"]??"").trim();
     const subjectAcronym=String(r["Acronyme"]??"").trim();
-    const subjectName=String(r["Matière"]??"").trim();
     const activity=subjectAcronym;
+    const course=courses.get(normalizeName(subjectAcronym))||null;
+    const fullName=course?course.fullName:"";
     const group=normalizeGroup(r["Groupe"]), room=r["Salle"], source=r["Texte source"];
     // Une ligne SEMAINE représente toute la semaine (PARTIELS, Vacances, etc.).
     if(day.toUpperCase()==="SEMAINE"){
-      specialWeeks.set(weekKey,{type,activity,group,room,text:source,wholeWeek:true,subjectAcronym,subjectName});
+      specialWeeks.set(weekKey,{type,activity,group,room,text:source,wholeWeek:true,subjectAcronym,course,fullName});
       continue;
     }
-    // Les jours fériés peuvent être une seule journée : on les conserve comme événements normaux,
-    // même s'ils n'ont pas de créneau.
     const idx=DAY_INDEX[day];
     if(idx===undefined)continue;
+    // Un jour férié occupe la journée entière, même si un créneau est indiqué.
+    if(type.toLowerCase()==="férié"){
+      events.push({week:weekKey,day,start:7*60,end:20*60,type,activity,group,room,source,allDay:true,subjectAcronym,course,fullName});
+      continue;
+    }
     const t=timeParts(r["Créneau"]);
     if(t){
-      events.push({week:weekKey,day,start:t[0],end:t[1],type,activity,group,room,source,subjectAcronym,subjectName});
-    }else if(type.toLowerCase()==="férié"){
-      events.push({week:weekKey,day,start:7*60,end:20*60,type,activity,group,room,source,allDay:true,subjectAcronym,subjectName});
+      events.push({week:weekKey,day,start:t[0],end:t[1],type,activity,group,room,source,subjectAcronym,course,fullName});
     }
   }
+  events.forEach((e,i)=>e._id=i);
   weeks=[...new Set([...events.map(e=>e.week),...specialWeeks.keys()])].sort();
   const groups=[...new Set(events.map(e=>e.group).concat([...specialWeeks.values()].map(e=>e.group)).filter(g=>g!=="Tous"))]
     .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
@@ -150,6 +221,12 @@ window.addEventListener("hashchange",()=>{
   applyHashGroup();
   render();
 });
+$("calendar").addEventListener("click",ev=>{
+  const el=ev.target.closest("[data-id]");
+  if(!el)return;
+  const e=events[+el.dataset.id];
+  if(e)openEventPopup(e);
+});
 function applyHashGroup(){
   const raw=decodeURIComponent(location.hash.replace(/^#/,"")).trim();
   if(!raw || raw.toLowerCase()==="tous"){ $("group").value="Tous"; return; }
@@ -160,10 +237,23 @@ function applyHashGroup(){
 $("prev").onclick=()=>{if(currentIndex>0){currentIndex--;render()}}
 $("next").onclick=()=>{if(currentIndex<weeks.length-1){currentIndex++;render()}}
 $("today").onclick=goToday;
+window.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){const o=$("popupOverlay");if(o)o.remove();return}
+  if($("popupOverlay"))return;
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  const t=e.target;
+  if(t&&(t.tagName==="INPUT"||t.tagName==="SELECT"||t.tagName==="TEXTAREA"||t.isContentEditable))return;
+  if(e.key==="ArrowLeft"&&currentIndex>0){e.preventDefault();currentIndex--;render()}
+  else if(e.key==="ArrowRight"&&currentIndex<weeks.length-1){e.preventDefault();currentIndex++;render()}
+});
 
 function goToday(){
   if(!weeks.length)return;
-  const todayKey=dateKey(monday(new Date()));
+  const now=new Date(), dow=now.getDay();
+  // Le week-end, on affiche la semaine suivante (aucun jour n'est alors surligné).
+  let base=monday(now);
+  if(dow===0||dow===6) base=new Date(base.getFullYear(),base.getMonth(),base.getDate()+7);
+  const todayKey=dateKey(base);
   // Exacte si elle existe ; sinon semaine du planning la plus proche chronologiquement.
   let i=weeks.indexOf(todayKey);
   if(i<0){
@@ -173,8 +263,53 @@ function goToday(){
       return dist<best.dist?{idx,dist}:{idx:best.idx,dist:best.dist};
     },{idx:0,dist:Infinity}).idx;
   }
-  currentIndex=i;render();
+  currentIndex=i;render();scrollToFocus();
 }
+function dayDate(weekKey,dayName){const d=fromKey(weekKey);d.setDate(d.getDate()+DAY_INDEX[dayName]);return d}
+function nextCourseInWeek(weekKey,now){
+  const today=dateKey(now), mins=now.getHours()*60+now.getMinutes(), group=$("group").value;
+  const list=events
+    .filter(e=>e.week===weekKey&&!e.allDay&&(group==="Tous"||e.group==="Tous"||e.group===group))
+    .sort((a,b)=>dayDate(weekKey,a.day)-dayDate(weekKey,b.day)||a.start-b.start);
+  for(const e of list){
+    const dk=dateKey(dayDate(weekKey,e.day));
+    if(dk>today||(dk===today&&e.end>mins)) return e;
+  }
+  return null;
+}
+function scrollToFocus(){
+  const cal=$("calendar"), grid=cal.querySelector(".calendar");
+  if(!grid||!weeks.length)return;
+  const target=nextCourseInWeek(weeks[currentIndex],new Date());
+  if(!target)return;
+  const col=grid.querySelectorAll(".day-col")[DAY_INDEX[target.day]];
+  if(col&&grid.scrollWidth>grid.clientWidth+1){
+    const left=grid.scrollLeft+(col.getBoundingClientRect().left-grid.getBoundingClientRect().left);
+    grid.scrollTo({left:Math.max(0,left-48),behavior:"smooth"});
+  }
+  const ev=[...grid.querySelectorAll(".event")].find(el=>el.dataset.day===target.day&&+el.dataset.start===target.start);
+  if(ev){
+    const head=document.querySelector("header");
+    const offset=(head?head.offsetHeight:0)+12;
+    window.scrollTo({top:Math.max(0,ev.getBoundingClientRect().top+window.scrollY-offset),behavior:"smooth"});
+  }
+}
+function positionNowLine(){
+  const cal=$("calendar"), col=cal.querySelector(".day-col.today");
+  let line=cal.querySelector(".now-line");
+  const mins=new Date().getHours()*60+new Date().getMinutes();
+  if(!col||mins<7*60||mins>20*60){if(line)line.remove();return}
+  if(!line){line=document.createElement("div");line.className="now-line";col.appendChild(line)}
+  line.style.top=(mins-7*60)+"px";
+}
+let lastTodayKey=dateKey(new Date());
+function refreshNow(){
+  positionNowLine();
+  const k=dateKey(new Date());
+  if(k!==lastTodayKey){lastTodayKey=k;render()}
+}
+setInterval(refreshNow,30000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshNow()});
 function render(){
   const cal=$("calendar");
   if(!weeks.length){$("weekTitle").textContent="Aucune donnée";cal.innerHTML='<div class="empty">Aucune donnée exploitable.</div>';return}
@@ -187,17 +322,19 @@ function render(){
   }
   const group=$("group").value, visible=events.filter(e=>e.week===key&&(group==="Tous"||e.group==="Tous"||e.group===group));
   const start=7*60,end=20*60,h=60;
+  const todayKeyStr=dateKey(new Date());
+  const todayName=DAYS.find((_,i)=>{const d=new Date(wk);d.setDate(d.getDate()+i);return dateKey(d)===todayKeyStr});
   let html='<div class="calendar"><div class="corner"></div>';
-  for(let i=0;i<5;i++){let d=new Date(wk);d.setDate(d.getDate()+i);html+=`<div class="day-head">${DAYS[i]}<small>${fmtShort(d)}</small></div>`}
+  for(let i=0;i<5;i++){let d=new Date(wk);d.setDate(d.getDate()+i);const isToday=dateKey(d)===todayKeyStr;html+=`<div class="day-head${isToday?" today":""}">${DAYS[i]}<small>${fmtShort(d)}</small></div>`}
   html+='<div class="time-col">';
   for(let m=start;m<end;m+=60)html+=`<div class="time">${pad(Math.floor(m/60))}:00</div>`;
   html+='</div>';
   for(const day of DAYS){
-    html+='<div class="day-col">';
+    html+='<div class="day-col'+(day===todayName?" today":"")+'">';
     const dayEvents=visible.filter(e=>e.day===day && !e.allDay);
     const allDay=visible.filter(e=>e.day===day && e.allDay);
     allDay.forEach(e=>{
-      html+=`<div class="day-special" style="top:5px;height:${13*h-10}px">
+      html+=`<div class="day-special" data-id="${e._id}" style="top:5px;height:${13*h-10}px">
         <strong>FÉRIÉ</strong>${e.activity?`<div class="meta">${esc(e.activity)}</div>`:""}${e.source?`<div class="meta">${esc(e.source)}</div>`:""}
       </div>`;
     });
@@ -228,7 +365,8 @@ function render(){
       cluster.forEach(e=>{
         const top=(e.start-start)*h/60, height=Math.max(38,(e.end-e.start)*h/60-6);
         const width=100/total, left=e._col*width;
-        html+=`<div class="event" style="top:${top}px;height:${height}px;left:calc(${left}% + 5px);width:calc(${width}% - 10px)" title="${esc([e.type,e.activity,e.group,e.room].filter(Boolean).join(" — "))}">
+        const evTitle=[e.type,e.fullName||e.activity,e.group,e.room].filter(Boolean).join(" — ");
+        html+=`<div class="event" data-id="${e._id}" data-day="${esc(day)}" data-start="${e.start}" style="top:${top}px;height:${height}px;left:calc(${left}% + 5px);width:calc(${width}% - 10px)" title="${esc(evTitle)}">
           <strong>${esc(e.type)}${e.activity?` · ${esc(e.activity)}`:""}</strong>
           <div class="meta">${pad(Math.floor(e.start/60))}:${pad(e.start%60)}–${pad(Math.floor(e.end/60))}:${pad(e.end%60)}</div>
           <div class="meta">${e.group!=="Tous"?`<span class="group">${esc(e.group)}</span> · `:""}${esc(e.room||"")}</div>
@@ -237,7 +375,7 @@ function render(){
     }
     html+='</div>';
   }
-  html+='</div>';cal.innerHTML=html;
+  html+='</div>';cal.innerHTML=html;positionNowLine();
 }
 loadDefault();
 </script>
