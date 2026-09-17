@@ -216,6 +216,7 @@ $("group").addEventListener("change",()=>{
   const v=$("group").value;
   history.replaceState(null,"", v==="Tous" ? location.pathname+location.search : location.pathname+location.search+"#"+encodeURIComponent(v));
   render();
+  scrollToFocus();
 });
 window.addEventListener("hashchange",()=>{
   applyHashGroup();
